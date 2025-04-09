@@ -187,13 +187,11 @@ def recreate_postgres_schema():
         BEFORE INSERT OR UPDATE ON attendance
         FOR EACH ROW
         EXECUTE FUNCTION set_week_start();
-
-        CREATE TABLE lecture_materials (
+        
+        CREATE TABLE user(
             id SERIAL PRIMARY KEY,
-            name VARCHAR(100) NOT NULL,
-            description TEXT,
-            created_at TIMESTAMP DEFAULT NOW(),
-            id_lecture INT NOT NULL REFERENCES lecture(id)
+            username VARCHAR(100) NOT NULL,
+            hash_password VARCHAR(255) NOT NULL
         );
         """
         cur.execute(schema_sql)
