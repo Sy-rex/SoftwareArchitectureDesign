@@ -11,6 +11,6 @@ public class RegistrationUserDTO {
     private String username;
 
     @NotBlank(message = "Password cannot be empty")
-    @Size(min = 6, max = 100, message = "Password must be at least 6 characters long")
+    @Size(min = 2, max = 100, message = "Password must be at least 2 characters long")
     private String password;
 }

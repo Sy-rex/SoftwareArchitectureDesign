@@ -22,19 +22,19 @@ logger = logging.getLogger(__name__)
 
 # Конфигурация подключения к базам данных (согласно docker-compose)
 PG_CONFIG = {
-    'host': 'host.docker.internal',
-    'port': 5433,
+    'host': 'postgres',
+    'port': 5432,
     'user': 'admin',
     'password': 'secret',
     'dbname': 'mydb'
 }
 MONGO_CONFIG = {
-    'host': 'host.docker.internal',
+    'host': 'mongo',
     'port': 27017,
     'db': 'university_db'
 }
 REDIS_CONFIG = {
-    'host': 'host.docker.internal',
+    'host': 'redis',
     'port': 6379,
     'db': 0
 }
@@ -44,7 +44,9 @@ NEO4J_CONFIG = {
     'password': None
 }
 ES_CONFIG = {
-    'hosts': ['http://host.docker.internal:9200']
+    'hosts': ['http://elasticsearch:9200'],
+    'verify_certs': False,  # Отключаем проверку сертификатов
+    'basic_auth': None      # Явно указываем отсутствие аутентификации
 }
 
 # Списки для генерации данных
@@ -68,7 +70,7 @@ def recreate_postgres_schema():
         cur = conn.cursor()
 
         # Сначала удаляем таблицы, включая возможные партиции attendance
-        tables = ["lecture_materials", "attendance", "groups", "department", "institute", "university", "course", "lecture", "schedule", "student"]
+        tables = ["attendance", "groups", "department", "institute", "university", "course", "lecture", "schedule", "student"]
         for table in tables:
             cur.execute(f"DROP TABLE IF EXISTS {table} CASCADE;")
         
@@ -188,7 +190,7 @@ def recreate_postgres_schema():
         FOR EACH ROW
         EXECUTE FUNCTION set_week_start();
         
-        CREATE TABLE user(
+        CREATE TABLE users (
             id SERIAL PRIMARY KEY,
             username VARCHAR(100) NOT NULL,
             hash_password VARCHAR(255) NOT NULL
@@ -328,15 +330,17 @@ def populate_postgres_data():
                 status = random.choice([True, False])
                 cur.execute("INSERT INTO attendance (timestamp, week_start, id_student, id_schedule, status) VALUES (%s, %s, %s, %s, %s);",
                             (ts, week_start.date(), stu, sched_id, status))
-
-        # 10. Материалы лекций (1-2 записи на лекцию)
+                
+        # 10. Генерация описаний для Elasticsearch (1-2 записи на лекцию)
+        lecture_descriptions = {}
         for lecture_id in lecture_ids.keys():
+            descriptions = []
             n_materials = random.randint(1, 2)
             for _ in range(n_materials):
-                material_name = "Материал " + fake.word().capitalize()
-                description = fake.text(max_nb_chars=200)
-                cur.execute("INSERT INTO lecture_materials (name, description, id_lecture) VALUES (%s, %s, %s);",
-                            (material_name, description, lecture_id))
+                descriptions.append(fake.text(max_nb_chars=200))
+            # сохраняем первое описание
+            if descriptions:
+                lecture_descriptions[lecture_id] = descriptions[0]
 
         # Обновление ключей в student и lecture
         cur.execute("UPDATE student SET redis_key = 'student:' || student_number;")
@@ -346,6 +350,8 @@ def populate_postgres_data():
         cur.close()
         conn.close()
         logger.info("PostgreSQL: Данные успешно заполнены.")
+        return lecture_descriptions
+    
     except Exception as e:
         logger.error("Ошибка при заполнении данных в PostgreSQL: %s", e)
         sys.exit(1)
@@ -528,20 +534,18 @@ def populate_neo4j(batch_size=1000):
         logger.error("Ошибка при переносе данных в Neo4j: %s", e)
         sys.exit(1)
 
-def populate_elasticsearch(batch_size=1000):
+def populate_elasticsearch(lecture_descriptions, batch_size=1000):
     """
-    Извлекаем данные лекций с постраничной выборкой и индексируем их в Elasticsearch.
-    Для каждой лекции используем первое описание из lecture_materials (если имеется).
+    Индексируем лекции в Elasticsearch с описаниями, сгенерированными заранее.
     """
     try:
         conn = psycopg2.connect(**PG_CONFIG)
         cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute("""
-            SELECT l.id, l.name, l.elasticsearch_id, l.created_at,
-                   (SELECT lm.description FROM lecture_materials lm WHERE lm.id_lecture = l.id LIMIT 1) AS description
-            FROM lecture l;
+            SELECT id, name, elasticsearch_id, created_at
+            FROM lecture;
         """)
-        es = Elasticsearch(ES_CONFIG['hosts'])
+        es = Elasticsearch(ES_CONFIG['hosts'],verify_certs=False,ssl_show_warn=False)
         index_name = "lectures"
         if es.indices.exists(index=index_name):
             es.indices.delete(index=index_name)
@@ -555,7 +559,7 @@ def populate_elasticsearch(batch_size=1000):
                 doc = {
                     "id": lec["id"],
                     "name": lec["name"],
-                    "description": lec["description"] if lec["description"] else "",
+                    "description": lecture_descriptions.get(lec["id"], ""),
                     "created_at": lec["created_at"].strftime("%Y-%m-%d %H:%M:%S"),
                     "lecture_id": lec["id"]
                 }
@@ -564,16 +568,17 @@ def populate_elasticsearch(batch_size=1000):
         cur.close()
         conn.close()
         logger.info("Elasticsearch: %d записей лекций перенесены в индекс '%s'.", total, index_name)
-    except (psycopg2.Error) as e:
+    except Exception as e:
         logger.error("Ошибка при переносе данных в Elasticsearch: %s", e)
         sys.exit(1)
+
 
 def main():
     logger.info("Начало работы скрипта.")
     recreate_postgres_schema()
     
     logger.info("Заполнение PostgreSQL данными...")
-    populate_postgres_data()
+    lecture_descriptions = populate_postgres_data()
     
     logger.info("Перенос данных в MongoDB из PostgreSQL...")
     populate_mongodb()
@@ -585,7 +590,7 @@ def main():
     populate_neo4j()
     
     logger.info("Перенос данных в Elasticsearch из PostgreSQL с пагинацией...")
-    populate_elasticsearch()
+    populate_elasticsearch(lecture_descriptions)
     
     logger.info("Все базы данных успешно обновлены и заполнены данными.")
 
