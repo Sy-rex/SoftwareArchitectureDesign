@@ -9,6 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.sql.Timestamp;
+import java.math.BigDecimal;
 
 @Service
 @RequiredArgsConstructor
@@ -31,7 +32,7 @@ public class PostgresAttendanceService {
         return rows.stream()
                 .map(row -> new StudentAttendanceRawDTO(
                         (String) row[0],
-                        (Double) row[1],
+                        ((BigDecimal) row[1]).doubleValue(),  // Преобразуем BigDecimal в Double
                         (Timestamp) row[2],
                         (Timestamp) row[3]
                 )).toList();
