@@ -17,6 +17,7 @@ public class LectureMaterialService {
 
     public List<LectureMaterialDTO> searchMaterials(String term) {
         List<LectureMaterial> materials = lectureMaterialRepository.findByDescriptionContaining(term);
+        System.out.println(materials.size());
         return materials.stream()
                 .map(this::convertToDto)
                 .collect(Collectors.toList());
