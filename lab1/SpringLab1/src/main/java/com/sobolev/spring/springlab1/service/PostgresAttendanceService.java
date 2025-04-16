@@ -23,6 +23,8 @@ public class PostgresAttendanceService {
             LocalDateTime from,
             LocalDateTime to
     ) {
+        System.out.println(from);
+        System.out.println(to);
         List<Object[]> rows = attendanceRepository.findLowestAttendanceByLectureIdsAndPeriod(
                 lectureIds,
                 Timestamp.valueOf(from),
@@ -32,9 +34,7 @@ public class PostgresAttendanceService {
         return rows.stream()
                 .map(row -> new StudentAttendanceRawDTO(
                         (String) row[0],
-                        ((BigDecimal) row[1]).doubleValue(),  // Преобразуем BigDecimal в Double
-                        (Timestamp) row[2],
-                        (Timestamp) row[3]
+                        ((BigDecimal) row[1]).doubleValue()
                 )).toList();
     }
 }

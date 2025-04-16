@@ -15,21 +15,10 @@ public class LectureMaterialService {
 
     private final LectureMaterialRepository lectureMaterialRepository;
 
-//    public List<Long> findLectureIdsByTerm(String term) {
-//        return lectureMaterialRepository.searchLectureIdsByTerm(term);
-//    }
-//
-//    public List<LectureMaterialDTO> searchMaterials(String term) {
-//        List<LectureMaterial> materials = lectureMaterialRepository.findByDescriptionContaining(term);
-//        System.out.println(materials.size());
-//        return materials.stream()
-//                .map(this::convertToDto)
-//                .collect(Collectors.toList());
-//    }
-
     public List<Long> searchLectureIds(String term) {
         List<LectureMaterial> materials = lectureMaterialRepository.findByDescriptionContaining(term);
         System.out.println(materials.size());
+        materials.stream().forEach(material -> System.out.println(material.getLectureId()));
         return materials.stream()
                 .map(LectureMaterial::getLectureId)
                 .collect(Collectors.toList());

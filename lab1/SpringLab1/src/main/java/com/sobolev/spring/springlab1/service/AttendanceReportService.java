@@ -76,8 +76,8 @@ public class AttendanceReportService {
                             .institute(hierarchy.getInstitute())
                             .department(hierarchy.getDepartment())
                             .attendancePercent(raw.getAttendancePercent())
-                            .periodStart(raw.getPeriodStart().toLocalDateTime())
-                            .periodEnd(raw.getPeriodEnd().toLocalDateTime())
+                            .periodStart(from)  // Используем параметр from напрямую
+                            .periodEnd(to)      // Используем параметр to напрямую
                             .searchTerm(term)
                             .relatedLectures(relatedLectures)
                             .build();

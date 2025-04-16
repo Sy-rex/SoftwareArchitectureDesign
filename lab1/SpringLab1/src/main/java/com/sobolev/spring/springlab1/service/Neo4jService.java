@@ -22,17 +22,22 @@ public class Neo4jService {
     public Optional<Long> getDepartmentIdByStudentNumber(String studentNumber) {
         try (Session session = neo4jDriver.session()) {
             String cypher = """
-            MATCH (s:Student {student_number: $studentNumber})-[:BELONGS_TO]->(:Group)
-                  -[:HAS_SCHEDULE]->(:Lecture)-[:ORIGINATES_FROM]->(d:Department)
-            RETURN d.department_id AS departmentId
-            LIMIT 1
+        MATCH (s:Student {student_number: $studentNumber})-[:BELONGS_TO]->(:Group)
+              -[:HAS_SCHEDULE]->(:Lecture)-[:ORIGINATES_FROM]->(d:Department)
+        WHERE d.id IS NOT NULL
+        RETURN d.id AS departmentId
+        LIMIT 1
         """;
 
             return session.readTransaction(tx -> {
                 Result result = tx.run(cypher, Values.parameters("studentNumber", studentNumber));
-                return result.hasNext()
-                        ? Optional.of(result.next().get("departmentId").asLong())
-                        : Optional.empty();
+                if (result.hasNext()) {
+                    Record record = result.next();
+                    if (!record.get("departmentId").isNull()) {
+                        return Optional.of(record.get("departmentId").asLong());
+                    }
+                }
+                return Optional.empty();
             });
         }
     }

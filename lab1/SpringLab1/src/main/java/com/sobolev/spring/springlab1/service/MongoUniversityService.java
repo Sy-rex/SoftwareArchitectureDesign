@@ -4,10 +4,10 @@ import com.sobolev.spring.springlab1.dto.MongoGroupInfo;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.aggregation.Aggregation;
+import org.springframework.data.mongodb.core.aggregation.AggregationOptions;
 import org.springframework.data.mongodb.core.aggregation.AggregationResults;
 import org.bson.Document;
 import org.springframework.data.mongodb.core.query.Criteria;
-import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -20,12 +20,13 @@ public class MongoUniversityService {
         Aggregation agg = Aggregation.newAggregation(
                 Aggregation.unwind("institutes"),
                 Aggregation.unwind("institutes.departments"),
-                Aggregation.match(Criteria.where("institutes.departments.id").is(departmentId)),
-                Aggregation.project()
-                        .and("name").as("university")
-                        .and("institutes.name").as("institute")
-                        .and("institutes.departments.name").as("department")
-        );
+                Aggregation.match(Criteria.where("institutes.departments.departmentId").is(departmentId)),
+                Aggregation.group("name")
+                        .first("name").as("university")
+                        .first("institutes.name").as("institute")
+                        .first("institutes.departments.name").as("department")
+        ).withOptions(AggregationOptions.builder().allowDiskUse(true).build());
+
 
         AggregationResults<Document> result = mongoTemplate.aggregate(agg, "universities", Document.class);
         Document doc = result.getUniqueMappedResult();

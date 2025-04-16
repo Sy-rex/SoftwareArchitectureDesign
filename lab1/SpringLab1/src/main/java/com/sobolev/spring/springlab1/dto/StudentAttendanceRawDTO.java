@@ -12,6 +12,4 @@ import java.sql.Timestamp;
 public class StudentAttendanceRawDTO {
     private String studentNumber;
     private Double attendancePercent;
-    private Timestamp periodStart;
-    private Timestamp periodEnd;
 }
