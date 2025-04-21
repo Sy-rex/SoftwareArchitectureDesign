@@ -101,20 +101,32 @@ services:
       echo 'Все БД готовы. Запуск скрипта...';
       python ./insert.py"
 
-#  spring-boot-app:
-#    build: .
-#    container_name: spring-boot-app
-#    depends_on:
-#      - redis
-#      - mongo
-#      - neo4j
-#      - elasticsearch
-#      - postgres
-#    ports:
-#      - "8080:8080"
-#    environment:
-#      - MONGODB_CONNECTION_STRING=1111
-#    command: sh -c "java -jar /app/lab_1-0.0.1-SNAPSHOT.jar"
+  spring-boot-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: spring-boot-app
+    depends_on:
+      - python-script
+      - redis
+      - mongo
+      - neo4j
+      - elasticsearch
+      - postgres
+    ports:
+      - "8081:8081"
+    environment:
+      - SPRING_PROFILES_ACTIVE=prod
+
+  api-gateway:
+    build:
+      context: ../gateway
+      dockerfile: Dockerfile
+    container_name: api-gateway
+    depends_on:
+      - spring-boot-app
+    ports:
+      - "8080:8080"
 
 volumes:
   redis-data:
