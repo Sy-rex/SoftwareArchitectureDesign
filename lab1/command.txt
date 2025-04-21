@@ -6,7 +6,7 @@ psql -U admin -d mydb
 SELECT * FROM student LIMIT 5;
 
 
-mongosh university_db
+mongosh university
 show collections
 db.universities.findOne()
 
