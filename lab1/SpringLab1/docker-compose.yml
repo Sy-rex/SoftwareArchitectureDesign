@@ -117,12 +117,18 @@ services:
       - "8081:8081"
     environment:
       - SPRING_PROFILES_ACTIVE=prod
+    networks:
+      app_net:
+        aliases:
+          - spring-boot-app
 
   api-gateway:
     build:
-      context: ../gateway
+      context: ../../gateway
       dockerfile: Dockerfile
     container_name: api-gateway
+    networks:
+      - app_net
     depends_on:
       - spring-boot-app
     ports:
@@ -135,3 +141,7 @@ volumes:
   neo4j-logs:
   elasticsearch-data:
   postgres-data:
+
+networks:
+  app_net:
+    driver: bridge

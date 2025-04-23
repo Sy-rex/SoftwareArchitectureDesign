@@ -14,7 +14,6 @@ public class JwtAuthFilter extends AbstractGatewayFilterFactory<JwtAuthFilter.Co
 
     private final JwtUtil jwtUtil;
 
-    // ✅ Конструктор обязательно вызывает super(Config.class)
     public JwtAuthFilter(JwtUtil jwtUtil) {
         super(Config.class);
         this.jwtUtil = jwtUtil;

@@ -17,10 +17,13 @@ public class GatewayConfig {
     public RouteLocator gatewayRoutes(RouteLocatorBuilder builder) {
         return builder.routes()
                 .route("auth-route", r -> r.path("/api/auth/**")
-                        .uri("http://localhost:8081"))
+                        .filters(f -> f.stripPrefix(1))
+                        .uri("http://spring-boot-app:8080"))
+
                 .route("attendance-route", r -> r.path("/api/attendance-report/**")
-                        .filters(f -> f.filter(jwtAuthFilter.apply(new JwtAuthFilter.Config())))
-                        .uri("http://localhost:8081"))
+                        .filters(f -> f.stripPrefix(1)
+                                .filter(jwtAuthFilter.apply(new JwtAuthFilter.Config())))
+                        .uri("http://spring-boot-app:8080"))
 
                 .build();
     }
