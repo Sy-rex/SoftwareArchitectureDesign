@@ -161,6 +161,7 @@ def create_postgres_schema(conn):
         "department",
         "institute",
         "university",
+        "users"
     ]
     
     logger.info("Удаляю существующие таблицы...")

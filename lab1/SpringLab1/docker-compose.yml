@@ -4,6 +4,8 @@ services:
   redis:
     image: redis:latest
     container_name: redis
+    networks:
+      - app_net
     ports:
       - "6379:6379"
     volumes:
@@ -17,6 +19,8 @@ services:
   mongo:
     image: mongo:latest
     container_name: mongo
+    networks:
+      - app_net
     ports:
       - "27017:27017"
     volumes:
@@ -30,6 +34,8 @@ services:
   neo4j:
     image: neo4j:latest
     container_name: neo4j
+    networks:
+      - app_net
     ports:
       - "7474:7474"
       - "7687:7687"
@@ -47,6 +53,8 @@ services:
   elasticsearch:
     image: elasticsearch:8.12.2
     container_name: elasticsearch
+    networks:
+      - app_net
     environment:
       - discovery.type=single-node
       - ES_JAVA_OPTS=-Xms512m -Xmx512m
@@ -66,6 +74,8 @@ services:
   postgres:
     image: postgres:latest
     container_name: postgres
+    networks:
+      - app_net
     environment:
       - POSTGRES_USER=admin
       - POSTGRES_PASSWORD=secret
@@ -83,6 +93,8 @@ services:
   python-script:
     build: ./python-script
     container_name: python-script
+    networks:
+      - app_net
     depends_on:
       - redis
       - mongo
@@ -107,20 +119,20 @@ services:
       dockerfile: Dockerfile
     container_name: spring-boot-app
     depends_on:
-      - python-script
-      - redis
-      - mongo
-      - neo4j
-      - elasticsearch
-      - postgres
+      python-script:
+        condition: service_completed_successfully
     ports:
       - "8081:8081"
     environment:
       - SPRING_PROFILES_ACTIVE=prod
     networks:
-      app_net:
-        aliases:
-          - spring-boot-app
+      - app_net
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -f http://localhost:8081/actuator/health || exit 1" ]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
 
   api-gateway:
     build:
@@ -130,9 +142,32 @@ services:
     networks:
       - app_net
     depends_on:
-      - spring-boot-app
+      python-script:
+        condition: service_completed_successfully
     ports:
       - "8080:8080"
+    command: sh -c "wait-for-it spring-boot-app:8081 --timeout=0 && ./run-api-gateway.sh"
+
+  spring-boot-app-2:
+    build:
+      context: ../../SpringLab2
+      dockerfile: Dockerfile
+    container_name: spring-boot-app-2
+    depends_on:
+      python-script:
+        condition: service_completed_successfully
+    ports:
+      - "8082:8082"
+    environment:
+      - SPRING_PROFILES_ACTIVE=prod
+    networks:
+      - app_net
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -f http://localhost:8082/actuator/health || exit 1" ]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
 
 volumes:
   redis-data:
@@ -144,4 +179,5 @@ volumes:
 
 networks:
   app_net:
+    name: app_net
     driver: bridge

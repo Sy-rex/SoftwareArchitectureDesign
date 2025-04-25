@@ -17,7 +17,7 @@ public class ReportController {
     }
 
     /**
-     * GET /api/reports/course/{courseId}?semester=1&year=2024
+     * GET /api/reports/course/{courseId}?semester=1&year=2023
      */
     @GetMapping("/course/{courseId}")
     public ResponseEntity<List<CourseLectureReportProjection>> getCourseReport(
