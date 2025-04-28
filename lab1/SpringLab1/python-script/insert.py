@@ -653,117 +653,94 @@ def populate_neo4j(pg_conn):
         logger.info("Извлекаю данные о кафедрах из PostgreSQL...")
         cur = pg_conn.cursor()
         cur.execute("SELECT id, name FROM department;")
-        depts = cur.fetchall()  # (id, name)
+        depts = cur.fetchall()
         cur.close()
         
-        logger.info(f"Создаю {len(depts)} узлов Department в Neo4j...")
         dept_nodes = [{"id": d[0], "name": d[1], "neo_id": f"neo_dept_{d[0]}"} for d in depts]
-        session.run("UNWIND $nodes AS node CREATE (d:Department {id: node.id, name: node.name, neo_id: node.neo_id})", nodes=dept_nodes)
+        session.run(
+            "UNWIND $nodes AS node CREATE (d:Department {id: node.id, name: node.name, neo_id: node.neo_id})",
+            {"nodes": dept_nodes}
+        )
         logger.info(f"Создано {len(dept_nodes)} узлов Department")
         
-        # 2. Создаем узлы Lecture и связываем с Department
-        logger.info("Извлекаю данные о лекциях из PostgreSQL...")
+        # 2. Создаем узлы Lecture и связи ORIGINATES_FROM
         cur = pg_conn.cursor()
-        cur.execute("""
+        cur.execute(
+            """
             SELECT l.id, l.name, c.id_department
             FROM lecture l JOIN course c ON l.id_course = c.id;
-        """)
-        lectures = cur.fetchall()  # (lecture_id, name, dept_id)
+            """
+        )
+        lectures = cur.fetchall()
         cur.close()
         
-        logger.info(f"Создаю {len(lectures)} узлов Lecture в Neo4j...")
         lecture_nodes = [{"id": lec[0], "name": lec[1]} for lec in lectures]
-        session.run("UNWIND $nodes AS node CREATE (l:Lecture {id: node.id, name: node.name})", nodes=lecture_nodes)
+        session.run(
+            "UNWIND $nodes AS node CREATE (l:Lecture {id: node.id, name: node.name})",
+            {"nodes": lecture_nodes}
+        )
         
-        logger.info("Создаю отношения (Lecture)-[:ORIGINATES_FROM]->(Department)...")
-        lecture_relations = 0
-        for i, lec in enumerate(lectures):
+        for lec in lectures:
             lec_id, _, dept_id = lec
-            session.run("""
-                MATCH (l:Lecture {id: $lec_id}), (d:Department {id: $dept_id})
-                CREATE (l)-[:ORIGINATES_FROM]->(d)
-            """, lec_id=lec_id, dept_id=dept_id)
-            lecture_relations += 1
-            if (i+1) % 100 == 0 or i == len(lectures) - 1:
-                progress = ((i+1) / len(lectures)) * 100
-                logger.info(f"Создано {i+1}/{len(lectures)} отношений для лекций ({progress:.1f}%)")
+            session.run(
+                "MATCH (l:Lecture {id: $lec_id}), (d:Department {id: $dept_id}) CREATE (l)-[:ORIGINATES_FROM]->(d)",
+                {"lec_id": lec_id, "dept_id": dept_id}
+            )
+        logger.info(f"Создано {len(lectures)} отношений (Lecture)->ORIGINATES_FROM")
         
         # 3. Создаем узлы Group
-        logger.info("Извлекаю данные о группах из PostgreSQL...")
         cur = pg_conn.cursor()
         cur.execute("SELECT id, name, mongo_id FROM groups;")
-        groups = cur.fetchall()  # (id, name, mongo_id)
+        groups = cur.fetchall()
         cur.close()
         
-        logger.info(f"Создаю {len(groups)} узлов Group в Neo4j...")
         group_nodes = [{"id": g[0], "name": g[1], "mongo_id": g[2]} for g in groups]
-        session.run("UNWIND $nodes AS node CREATE (g:Group {id: node.id, name: node.name, mongo_id: node.mongo_id})", nodes=group_nodes)
+        session.run(
+            "UNWIND $nodes AS node CREATE (g:Group {id: node.id, name: node.name, mongo_id: node.mongo_id})",
+            {"nodes": group_nodes}
+        )
         logger.info(f"Создано {len(group_nodes)} узлов Group")
         
-        # 4. Создаем узлы Student и связываем с Group (batch-режим для 30000+ записей)
-        logger.info("Извлекаю данные о студентах из PostgreSQL...")
+        # 4. Создаем узлы Student и связи BELONGS_TO
         cur = pg_conn.cursor()
         cur.execute("SELECT student_number, fullname, redis_key, id_group FROM student;")
-        students = cur.fetchall()  # (student_number, fullname, redis_key, group_id)
+        students = cur.fetchall()
         cur.close()
         
-        logger.info(f"Создаю {len(students)} узлов Student в Neo4j (пакетами)...")
         student_nodes = [{"student_number": s[0], "fullname": s[1], "redis_key": s[2], "id_group": s[3]} for s in students]
         batch_size = 1000
-        batches_count = (len(student_nodes) + batch_size - 1) // batch_size  # Округление вверх
-        
         for i in range(0, len(student_nodes), batch_size):
             batch = student_nodes[i:i+batch_size]
-            session.run("""
-                UNWIND $nodes AS node
-                CREATE (st:Student {student_number: node.student_number, fullname: node.fullname, redis_key: node.redis_key})
-            """, nodes=batch)
-            
-            batch_num = (i // batch_size) + 1
-            progress = (batch_num / batches_count) * 100
-            logger.info(f"Создано узлов Student: пакет {batch_num}/{batches_count} ({progress:.1f}%)")
+            session.run(
+                "UNWIND $nodes AS node CREATE (st:Student {student_number: node.student_number, fullname: node.fullname, redis_key: node.redis_key})",
+                {"nodes": batch}
+            )
         
-        # Создаем отношения (Student)-[:BELONGS_TO]->(Group)
-        logger.info("Создаю отношения (Student)-[:BELONGS_TO]->(Group)...")
-        student_relations = 0
+        for s in student_nodes:
+            session.run(
+                "MATCH (st:Student {student_number: $student_number}), (g:Group {id: $group_id}) CREATE (st)-[:BELONGS_TO]->(g)",
+                {"student_number": s["student_number"], "group_id": s["id_group"]}
+            )
+        logger.info(f"Создано {len(student_nodes)} узлов Student и связей BELONGS_TO")
         
-        for i, s in enumerate(student_nodes):
-            session.run("""
-                MATCH (st:Student {student_number: $student_number}), (g:Group {id: $group_id})
-                CREATE (st)-[:BELONGS_TO]->(g)
-            """, student_number=s["student_number"], group_id=s["id_group"])
-            student_relations += 1
-            
-            if (i+1) % 5000 == 0 or i == len(student_nodes) - 1:
-                progress = ((i+1) / len(student_nodes)) * 100
-                logger.info(f"Создано {i+1}/{len(student_nodes)} отношений для студентов ({progress:.1f}%)")
-        
-        # 5. Создаем отношения (Group)-[:HAS_SCHEDULE]->(Lecture) на основании расписания
-        logger.info("Извлекаю данные о расписании из PostgreSQL...")
+        # 5. Создаем отношения HAS_SCHEDULE
         cur = pg_conn.cursor()
-        cur.execute("SELECT DISTINCT id_group, id_lecture FROM schedule;")
-        schedule_pairs = cur.fetchall()  # (group_id, lecture_id)
+        cur.execute("SELECT id_group, id_lecture, timestamp, location FROM schedule;")
+        schedule_pairs = cur.fetchall()
         cur.close()
         
-        logger.info(f"Создаю {len(schedule_pairs)} отношений (Group)-[:HAS_SCHEDULE]->(Lecture)...")
-        schedule_relations = 0
-        
-        for i, pair in enumerate(schedule_pairs):
-            group_id, lecture_id = pair
-            session.run("""
-                MATCH (g:Group {id: $group_id}), (l:Lecture {id: $lecture_id})
-                CREATE (g)-[:HAS_SCHEDULE]->(l)
-            """, group_id=group_id, lecture_id=lecture_id)
-            schedule_relations += 1
-            
-            if (i+1) % 1000 == 0 or i == len(schedule_pairs) - 1:
-                progress = ((i+1) / len(schedule_pairs)) * 100
-                logger.info(f"Создано {i+1}/{len(schedule_pairs)} отношений для расписаний ({progress:.1f}%)")
+        for group_id, lecture_id, timestamp, location in schedule_pairs:
+            ts = timestamp.replace(tzinfo=None).isoformat()
+            session.run(
+                "MATCH (g:Group {id: $group_id}), (l:Lecture {id: $lecture_id}) "
+                + "CREATE (g)-[:HAS_SCHEDULE {date: datetime($timestamp), location: $location}]->(l)",
+                {"group_id": group_id, "lecture_id": lecture_id, "timestamp": ts, "location": location}
+            )
+        logger.info(f"Создано {len(schedule_pairs)} отношений HAS_SCHEDULE")
     
     driver.close()
-    
-    elapsed_time = time.time() - start_time
-    logger.info(f"Neo4j заполнен успешно: {len(dept_nodes)} кафедр, {len(lecture_nodes)} лекций, {len(group_nodes)} групп, {len(student_nodes)} студентов, {lecture_relations + student_relations + schedule_relations} отношений за {elapsed_time:.2f} секунд")
+    elapsed = time.time() - start_time
+    logger.info(f"Neo4j заполнен успешно за {elapsed:.2f} секунд")
 
 ##########################################################################
 # Redis: Запись данных о студентах в виде hash

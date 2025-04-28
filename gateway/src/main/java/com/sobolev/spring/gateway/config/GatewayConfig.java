@@ -29,6 +29,10 @@ public class GatewayConfig {
                                 .filter(jwtAuthFilter.apply(new JwtAuthFilter.Config())))
                         .uri("http://spring-boot-app-2:8082"))
 
+                .route("reports3", r -> r.path("/api/reports3/**")
+                        .filters(f -> f
+                                .filter(jwtAuthFilter.apply(new JwtAuthFilter.Config())))
+                        .uri("http://spring-boot-app-3:8083"))
                 .build();
     }
 }

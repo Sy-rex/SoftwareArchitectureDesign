@@ -169,6 +169,27 @@ services:
       retries: 10
       start_period: 40s
 
+  spring-boot-app-3:
+    build:
+      context: ../../SpringLab3
+      dockerfile: Dockerfile
+    container_name: spring-boot-app-3
+    depends_on:
+      python-script:
+        condition: service_completed_successfully
+    ports:
+      - "8083:8083"
+    environment:
+      - SPRING_PROFILES_ACTIVE=prod
+    networks:
+      - app_net
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -f http://localhost:8083/actuator/health || exit 1" ]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+
 volumes:
   redis-data:
   mongo-data:

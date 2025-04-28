@@ -6,9 +6,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Objects;
-import java.util.Optional;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -18,71 +17,76 @@ public class AttendanceReportService {
     private final LectureMaterialService lectureMaterialService;
     private final PostgresAttendanceService attendanceService;
     private final RedisService redisService;
-    private final MongoUniversityService mongoUniversityService;
     private final Neo4jService neo4jService;
 
     public List<FullStudentAttendanceDTO> generateReport(String term, LocalDateTime from, LocalDateTime to) {
+        // Ищем лекции по термину
         List<Long> lectureIds = lectureMaterialService.searchLectureIds(term);
         if (lectureIds.isEmpty()) {
             log.warn("Ни одной лекции не найдено по термину '{}'", term);
-            return List.of();
+            return Collections.emptyList();
         }
 
-        List<StudentAttendanceRawDTO> rawAttendance = attendanceService
-                .getTop10WithLowestAttendance(lectureIds, from, to);
+        lectureIds.stream().limit(10).forEach(System.out::println);
+        System.out.println("------------------");
 
-        return rawAttendance.stream()
-                .map(raw -> {
-                    String studentNumber = raw.getStudentNumber();
+        // Получаем ожидаемые посещения из Neo4j: студент -> сколько должен был посетить занятий
+        Map<String, Integer> expectedMap = neo4jService.getExpectedAttendanceCountMap(lectureIds, from, to);
+        if (expectedMap.isEmpty()) {
+            log.warn("Не найдено студентов в Neo4j по заданным лекциям и периоду");
+            return Collections.emptyList();
+        }
+        System.out.println(expectedMap);
+        System.out.println("------------------");
 
+        // Получаем фактические посещения из Postgres: студент -> сколько реально посетил
+        List<String> students = new ArrayList<>(expectedMap.keySet());
+        Map<String, Integer> actualMap = attendanceService
+                .getActualAttendanceCountMap(lectureIds, from, to, students);
+
+        System.out.println(actualMap);
+        System.out.println("------------------");
+
+        // Рассчитываем процент посещения и берём 10 студентов с минимальным значением
+        List<StudentAttendancePercentDTO> percentList = expectedMap.entrySet().stream()
+                .map(e -> {
+                    String studentNumber = e.getKey();
+                    int expected = e.getValue();
+                    int actual = actualMap.getOrDefault(studentNumber, 0);
+                    double percent = expected > 0 ? actual * 100.0 / expected : 0.0;
+                    return new StudentAttendancePercentDTO(studentNumber, percent);
+                })
+                .sorted(Comparator.comparingDouble(StudentAttendancePercentDTO::getPercent))
+                .limit(10)
+                .collect(Collectors.toList());
+
+        // Формируем итоговый DTO
+        return percentList.stream()
+                .map(p -> {
+                    String studentNumber = p.getStudentNumber();
+                    double attendancePercent = p.getPercent();
+
+                    // Redis
                     RedisStudentInfo redisInfo;
                     try {
                         redisInfo = redisService.getStudentInfo(studentNumber);
-                    } catch (Exception e) {
-                        log.warn("Ошибка при получении Redis-инфо о студенте {}: {}", studentNumber, e.getMessage());
+                    } catch (Exception ex) {
+                        log.warn("Ошибка при получении Redis-инфо о студенте {}: {}", studentNumber, ex.getMessage());
                         return null;
                     }
-
-                    // --- Получение кафедры ---
-                    Optional<Long> departmentIdOpt = neo4jService.getDepartmentIdByStudentNumber(studentNumber);
-
-                    MongoGroupInfo hierarchy = departmentIdOpt
-                            .map(id -> {
-                                try {
-                                    return mongoUniversityService.getHierarchyByDepartmentId(id);
-                                } catch (Exception e) {
-                                    log.warn("Не найдена кафедра в MongoDB по departmentId {}: {}", id, e.getMessage());
-                                    return MongoGroupInfo.unknown();
-                                }
-                            })
-                            .orElseGet(() -> {
-                                log.warn("Кафедра не найдена в Neo4j для студента {}", studentNumber);
-                                return MongoGroupInfo.unknown();
-                            });
-
-                    // --- Получение связанных лекций ---
-                    List<String> relatedLectures = neo4jService.getLecturesForStudent(studentNumber).stream()
-                            .map(NeoLectureInfoDTO::getLectureName)
-                            .filter(Objects::nonNull)
-                            .distinct()
-                            .toList();
 
                     return FullStudentAttendanceDTO.builder()
                             .studentNumber(studentNumber)
                             .fullName(redisInfo.getFullname())
                             .email(redisInfo.getEmail())
                             .groupName(redisInfo.getGroupName())
-                            .university(hierarchy.getUniversity())
-                            .institute(hierarchy.getInstitute())
-                            .department(hierarchy.getDepartment())
-                            .attendancePercent(raw.getAttendancePercent())
-                            .periodStart(from)  // Используем параметр from напрямую
-                            .periodEnd(to)      // Используем параметр to напрямую
+                            .attendancePercent(attendancePercent)
+                            .periodStart(from)
+                            .periodEnd(to)
                             .searchTerm(term)
-                            .relatedLectures(relatedLectures)
                             .build();
                 })
                 .filter(Objects::nonNull)
-                .toList();
+                .collect(Collectors.toList());
     }
 }

@@ -1,15 +1,15 @@
 package com.sobolev.spring.springlab1.service;
 
-import com.sobolev.spring.springlab1.dto.StudentAttendanceRawDTO;
 import com.sobolev.spring.springlab1.repository.AttendanceRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
 import java.sql.Timestamp;
-import java.math.BigDecimal;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -18,23 +18,25 @@ public class PostgresAttendanceService {
 
     private final AttendanceRepository attendanceRepository;
 
-    public List<StudentAttendanceRawDTO> getTop10WithLowestAttendance(
+    public Map<String, Integer> getActualAttendanceCountMap(
             List<Long> lectureIds,
             LocalDateTime from,
-            LocalDateTime to
+            LocalDateTime to,
+            List<String> studentNumbers
     ) {
-        System.out.println(from);
-        System.out.println(to);
-        List<Object[]> rows = attendanceRepository.findLowestAttendanceByLectureIdsAndPeriod(
-                lectureIds,
-                Timestamp.valueOf(from),
-                Timestamp.valueOf(to)
-        );
-
-        return rows.stream()
-                .map(row -> new StudentAttendanceRawDTO(
-                        (String) row[0],
-                        ((BigDecimal) row[1]).doubleValue()
-                )).toList();
+        List<Object[]> rows = attendanceRepository
+                .findActualAttendanceCountByLectureIdsAndPeriodAndStudents(
+                        lectureIds,
+                        Timestamp.valueOf(from),
+                        Timestamp.valueOf(to),
+                        studentNumbers
+                );
+        Map<String, Integer> actualMap = new HashMap<>();
+        for (Object[] row : rows) {
+            String studentNumber = (String) row[0];
+            Integer count = ((Number) row[1]).intValue();
+            actualMap.put(studentNumber, count);
+        }
+        return actualMap;
     }
 }
