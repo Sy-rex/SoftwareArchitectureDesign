@@ -1,34 +1,80 @@
 package com.sobolev.spring.springlab2.service;
 
-import com.sobolev.spring.springlab2.dto.CourseLectureReportProjection;
-import com.sobolev.spring.springlab2.repository.CourseRepository;
+import com.sobolev.spring.springlab2.dto.LectureReportDTO;
+import com.sobolev.spring.springlab2.entity.Course;
+import com.sobolev.spring.springlab2.entity.Lecture;
+import com.sobolev.spring.springlab2.entity.UniversityDocument;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.time.LocalDate;
-import java.time.LocalDateTime;
+import java.util.AbstractMap;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
+@Slf4j
 @Service
+@RequiredArgsConstructor
 public class ReportService {
-    private final CourseRepository courseRepo;
 
-    public ReportService(CourseRepository courseRepo) {
-        this.courseRepo = courseRepo;
-    }
+    private final PostgresService postgresService;
+    private final Neo4jService neo4jService;
+    private final MongoService mongoService;
 
-    public List<CourseLectureReportProjection> getCourseReport(
-            Long courseId, int semester, int year) {
+    public List<LectureReportDTO> generateReport(Long courseId, int semester, int studyYear) {
+        log.info("generateReport invoked: courseId={}, semester={}, studyYear={}", courseId, semester, studyYear);
 
-        LocalDateTime start, end;
+        Course course = postgresService.getCourseById(courseId);
+        log.debug("Course loaded: id={}, name={}, deptId={}",
+                course.getId(), course.getName(), course.getDepartmentId());
 
-        if (semester == 1) {
-            start = LocalDate.of(year, 9, 1).atStartOfDay();
-            end   = LocalDate.of(year, 12, 31).atTime(23,59,59);
+        List<Lecture> allLectures = postgresService.getLecturesByCourseId(courseId);
+        log.debug("Total lectures from Postgres: {}", allLectures.size());
+
+        Set<Long> scheduledIds = neo4jService.getScheduledLectureIds(semester, studyYear);
+        log.debug("Lecture IDs scheduled in Neo4j: {}", scheduledIds);
+
+        UniversityDocument uniDoc = mongoService.getUniversityByDepartmentId(course.getDepartmentId());
+        if (uniDoc == null) {
+            log.warn("No UniversityDocument found for departmentId={}", course.getDepartmentId());
         } else {
-            start = LocalDate.of(year + 1, 2,  1).atStartOfDay();
-            end   = LocalDate.of(year + 1, 6, 30).atTime(23,59,59);
+            log.debug("UniversityDocument fetched: universityId={}, name={}",
+                    uniDoc.getUniversityId(), uniDoc.getName());
         }
 
-        return courseRepo.findLectureAttendanceReport(courseId, start, end);
+        Optional<AbstractMap.SimpleEntry<String,String>> departmentInfo =
+                Optional.ofNullable(uniDoc).flatMap(doc ->
+                        doc.getInstitutes().stream()
+                                .flatMap(inst -> inst.getDepartments().stream()
+                                        .filter(d -> d.getDepartmentId().equals(course.getDepartmentId().intValue()))
+                                        .map(d -> new AbstractMap.SimpleEntry<>(inst.getName(), d.getName()))
+                                )
+                                .findFirst()
+                );
+
+        String instName = departmentInfo.map(AbstractMap.SimpleEntry::getKey).orElse("(не найдено)");
+        String deptName = departmentInfo.map(AbstractMap.SimpleEntry::getValue).orElse("(не найдено)");
+        log.debug("Resolved institute='{}', department='{}'", instName, deptName);
+
+        List<LectureReportDTO> report = allLectures.stream()
+                .filter(lec -> scheduledIds.contains(lec.getId()))
+                .peek(lec -> log.debug("Including lecture id={} name='{}'", lec.getId(), lec.getName()))
+                .map(lec -> {
+                    long studentCount = neo4jService.getStudentCount(lec.getId(), semester, studyYear);
+                    log.debug("Lecture id={} has studentCount={}", lec.getId(), studentCount);
+                    return new LectureReportDTO(course.getName(),
+                            lec.getId(), lec.getName(), lec.getTechEquipment(),
+                            studentCount,
+                            uniDoc.getName(),
+                            instName, deptName,
+                            semester, studyYear
+                    );
+                })
+                .collect(Collectors.toList());
+
+        log.info("generateReport completed: returning {} entries", report.size());
+        return report;
     }
 }

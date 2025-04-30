@@ -27,25 +27,17 @@ public class AttendanceReportService {
             return Collections.emptyList();
         }
 
-        lectureIds.stream().limit(10).forEach(System.out::println);
-        System.out.println("------------------");
-
         // Получаем ожидаемые посещения из Neo4j: студент -> сколько должен был посетить занятий
         Map<String, Integer> expectedMap = neo4jService.getExpectedAttendanceCountMap(lectureIds, from, to);
         if (expectedMap.isEmpty()) {
             log.warn("Не найдено студентов в Neo4j по заданным лекциям и периоду");
             return Collections.emptyList();
         }
-        System.out.println(expectedMap);
-        System.out.println("------------------");
 
         // Получаем фактические посещения из Postgres: студент -> сколько реально посетил
         List<String> students = new ArrayList<>(expectedMap.keySet());
         Map<String, Integer> actualMap = attendanceService
                 .getActualAttendanceCountMap(lectureIds, from, to, students);
-
-        System.out.println(actualMap);
-        System.out.println("------------------");
 
         // Рассчитываем процент посещения и берём 10 студентов с минимальным значением
         List<StudentAttendancePercentDTO> percentList = expectedMap.entrySet().stream()
@@ -60,7 +52,6 @@ public class AttendanceReportService {
                 .limit(10)
                 .collect(Collectors.toList());
 
-        // Формируем итоговый DTO
         return percentList.stream()
                 .map(p -> {
                     String studentNumber = p.getStudentNumber();

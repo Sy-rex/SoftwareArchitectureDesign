@@ -12,6 +12,7 @@ import java.util.List;
 @Setter
 public class Course {
     @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
     @Column(nullable = false)
@@ -19,4 +20,7 @@ public class Course {
 
     @OneToMany(mappedBy = "course", fetch = FetchType.LAZY)
     private List<Lecture> lectures;
+
+    @Column(name = "id_department", nullable = false)
+    private Long departmentId;
 }

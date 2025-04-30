@@ -6,11 +6,14 @@ import lombok.Setter;
 
 @Entity
 @Table(name = "lecture")
-@Getter @Setter
+@Getter
+@Setter
 public class Lecture {
     @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(nullable = false)
     private String name;
 
     @Column(name = "duration_hours")
@@ -22,7 +25,4 @@ public class Lecture {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "id_course", nullable = false)
     private Course course;
-
-    @Column(name = "elasticsearch_id")
-    private String elasticsearchId;
 }
