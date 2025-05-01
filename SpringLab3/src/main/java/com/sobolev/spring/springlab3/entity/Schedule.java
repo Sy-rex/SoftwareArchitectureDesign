@@ -14,18 +14,14 @@ public class Schedule {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
-
-    @Column(name = "id_lecture", nullable = false)
-    private Long lectureId;
-
-    @Column(name = "id_group", nullable = false)
-    private Long groupId;
-
-    @Column(nullable = false)
     private LocalDateTime timestamp;
-
     private String location;
 
-    @Column(name = "created_at")
-    private LocalDateTime createdAt = LocalDateTime.now();
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "id_lecture")
+    private Lecture lecture;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "id_group")
+    private Group group;
 }

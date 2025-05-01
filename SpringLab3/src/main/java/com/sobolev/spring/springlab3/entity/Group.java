@@ -1,14 +1,12 @@
 package com.sobolev.spring.springlab3.entity;
 
 import jakarta.persistence.*;
-import lombok.Getter;
-import lombok.Setter;
+import lombok.Data;
 
 @Entity
-@Table(name = "course")
-@Getter
-@Setter
-public class Course {
+@Table(name = "groups")
+@Data
+public class Group {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;

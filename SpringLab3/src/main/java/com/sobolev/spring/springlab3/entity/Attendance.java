@@ -4,30 +4,31 @@ import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "attendance")
+@IdClass(AttendanceId.class)
 @Getter
 @Setter
 public class Attendance {
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+
+    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false)
-    private LocalDateTime timestamp;
-
-    @Column(name = "week_start", nullable = false)
+    @Id
     private LocalDate weekStart;
 
-    @Column(name = "id_student", nullable = false)
-    private String studentNumber;
+    private LocalDateTime timestamp;
+    private Boolean status;
 
-    @Column(name = "id_schedule", nullable = false)
-    private Long scheduleId;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "id_schedule")
+    private Schedule schedule;
 
-    @Column(nullable = false)
-    private Boolean status = true;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "id_student")
+    private Student student;
 }

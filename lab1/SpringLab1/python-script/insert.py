@@ -333,6 +333,7 @@ def populate_postgres(conn):
     conn.commit()
     elapsed_time = time.time() - start_time
     logger.info(f"Создано {len(universities)} университетов за {elapsed_time:.2f} секунд")
+    
 
     # 2. Институты → Кафедры → Группы → Студенты
     logger.info("Создаю институты, кафедры, группы и студентов...")
@@ -520,6 +521,94 @@ def populate_postgres(conn):
         logger.info(f"Вставлено {total_attendances} записей о посещаемости (финальный пакет)")
     
     conn.commit()
+    
+    # === (4) Специальные лекции ===
+    target_group_id = 4
+    logger.info(f"Добавляем специальные лекции только для группы {target_group_id}…")
+
+    # получаем все лекции и их кафедры
+    cur.execute("""
+        SELECT l.id AS lec_id, c.id_department AS dept_id
+        FROM lecture l
+        JOIN course c ON l.id_course = c.id
+    """)
+    lecture_depts = cur.fetchall()  # [(lec_id, dept_id), ...]
+
+    # определяем dept_id для нашей группы
+    target_dept_id = None
+    for dept_id, dept_groups in groups.items():
+        if any(gid == target_group_id for gid, _ in dept_groups):
+            target_dept_id = dept_id
+            break
+
+    if target_dept_id is None:
+        logger.warn(f"Группа {target_group_id} не найдена — спец-лекции не добавлены")
+    else:
+        # отбираем лекции из других кафедр
+        other_lects = [lec for lec, d in lecture_depts if d != target_dept_id]
+        special_sample = random.sample(other_lects, min(2, len(other_lects)))
+        logger.debug(f"Для группы {target_group_id} выбраны спец-лекции: {special_sample}")
+
+        # удаляем старые schedule и attendance для этих лекций
+        cur.execute(
+            "DELETE FROM attendance WHERE id_schedule IN "
+            "(SELECT id FROM schedule WHERE id_group = %s AND id_lecture = ANY(%s))",
+            (target_group_id, special_sample)
+        )
+        cur.execute(
+            "DELETE FROM schedule WHERE id_group = %s AND id_lecture = ANY(%s)",
+            (target_group_id, special_sample)
+        )
+        conn.commit()
+
+        # создаём новые schedule и собираем их id
+        new_sched_ids = []
+        for lec_id in special_sample:
+            cur.execute(
+                "INSERT INTO schedule(id_lecture, id_group, timestamp, location) "
+                "VALUES (%s, %s, %s, %s) RETURNING id;",
+                (lec_id, target_group_id, base_datetime, f"Спец-Ауд-{random.randint(1,5)}")
+            )
+            new_sched_ids.append(cur.fetchone()[0])
+
+        # получаем всех студентов группы
+        cur.execute("SELECT student_number FROM student WHERE id_group = %s;", (target_group_id,))
+        student_numbers = [row[0] for row in cur.fetchall()]
+
+        # для каждого студента вставляем 1 или 2 записи attendance
+        for stu_num in student_numbers:
+            # случайно выбираем, сколько сессий у этого студента: 1 или 2 (если спец-лекций 2)
+            count_for_student = random.randint(1, len(new_sched_ids))
+            chosen = random.sample(new_sched_ids, count_for_student)
+            for sched_id in chosen:
+                status = random.random() < 0.8
+                cur.execute(
+                    """
+                    INSERT INTO attendance(
+                        timestamp,
+                        week_start,
+                        id_student,
+                        id_schedule,
+                        status
+                    ) VALUES (
+                        %s,
+                        date_trunc('week', %s)::date,
+                        %s,
+                        %s,
+                        %s
+                    )
+                    """,
+                    (base_datetime, base_datetime, stu_num, sched_id, status)
+                )
+
+        conn.commit()
+        logger.info(
+            f"Добавлено {len(new_sched_ids)} спец-лекций и "
+            f"по 1–2 attendance-записи для {len(student_numbers)} студентов"
+        )
+        
+    conn.commit()
+
     elapsed_time = time.time() - start_time
     logger.info(f"Созданы: {total_courses} курсов, {total_lectures} лекций, {total_schedules} расписаний, {total_attendances} записей о посещаемости за {elapsed_time:.2f} секунд")
     

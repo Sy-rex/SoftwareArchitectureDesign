@@ -1,5 +1,6 @@
 package com.sobolev.spring.springlab3.service;
 
+import com.sobolev.spring.springlab3.dto.ReportDTO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
@@ -12,10 +13,10 @@ import java.util.Map;
 public class RedisService {
     private final RedisTemplate<String, String> redisTemplate;
 
-    public Map<String, String> getStudentDetails(String redisKey) {
-        Map<Object, Object> entries = redisTemplate.opsForHash().entries(redisKey);
-        Map<String, String> result = new HashMap<>();
-        entries.forEach((k, v) -> result.put(k.toString(), v != null ? v.toString() : null));
-        return result;
+    public void enrichStudentInfo(ReportDTO dto, String studentNumber) {
+        Map<Object,Object> entries =
+                redisTemplate.opsForHash().entries("student:" + studentNumber);
+        dto.setStudentName((String)entries.get("fullname"));
+        dto.setEmail((String)entries.get("email"));
     }
 }

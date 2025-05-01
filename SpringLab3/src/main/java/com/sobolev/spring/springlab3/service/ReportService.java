@@ -1,108 +1,59 @@
 package com.sobolev.spring.springlab3.service;
 
-import com.sobolev.spring.springlab3.dto.GroupReportDTO;
-import com.sobolev.spring.springlab3.dto.StudentReportDTO;
-import com.sobolev.spring.springlab3.entity.Attendance;
-import com.sobolev.spring.springlab3.entity.Schedule;
-import com.sobolev.spring.springlab3.entity.StudentNode;
+import com.sobolev.spring.springlab3.dto.ReportDTO;
+import com.sobolev.spring.springlab3.repository.GroupRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class ReportService {
-    private final PostgresService postgresService;
-    private final Neo4jService neo4jService;
-    private final RedisService redisService;
+    private final PostgresService pg;
+    private final Neo4jService neo4j;
+    private final RedisService redis;
+    private final MongoService mongo;
+    private final GroupRepository groupRepo;
 
-    private static final int HOURS_PER_LECTURE = 2;
+    public List<ReportDTO> getReportByGroup(Long groupId) {
+        log.info("Starting report generation for group {}", groupId);
 
-    public GroupReportDTO generateGroupReport(Long groupId) {
-        GroupReportDTO report = new GroupReportDTO();
-        report.setGroupId(groupId);
+        // специальные лекции
+        List<Long> specialIds = pg.getSpecialLectureIds(groupId);
+        log.debug("Found {} special lectures: {}", specialIds.size(), specialIds);
 
-        // Получаем информацию о группе из Neo4j
-        neo4jService.findGroupNodeById(groupId).ifPresent(groupNode -> {
-            report.setGroupName(groupNode.getName());
-            report.setDepartmentName(groupNode.getDepartment() != null ? groupNode.getDepartment().getName() : "Unknown");
-        });
+        int plannedHours = neo4j.getPlannedHours(groupId, specialIds);
+        log.debug("Planned hours for group {}: {}", groupId, plannedHours);
 
-        // Получаем специальные лекции из Neo4j
-        List<Long> specialLectureIds = neo4jService.findSpecialLectureIdsByGroupId(groupId);
+        // Посещённые часы по студентам
+        Map<String, Integer> attended = pg.getAttendedHours(groupId, specialIds);
+        log.debug("Attended hours per student: {} entries", attended.size());
 
-        // Получаем расписание для специальных лекций из PostgreSQL
-        List<Schedule> schedules = postgresService.findSchedulesByGroupIdAndLectureIds(groupId, specialLectureIds);
+        Set<String> students = new HashSet<>(attended.keySet());
 
-        // Получаем студентов группы из Neo4j
-        List<StudentNode> students = neo4jService.findStudentsByGroupId(groupId);
+        var group = groupRepo.findById(groupId)
+                .orElseThrow(() -> {
+                    log.error("Group {} not found", groupId);
+                    return new RuntimeException("Group not found");
+                });
 
-        // Формируем отчет
-        List<StudentReportDTO> studentReports = new ArrayList<>();
-        Map<Long, Long> coursePlannedHours = new HashMap<>();
-        Map<Long, Long> scheduleToCourseId = new HashMap<>();
-        Map<Long, String> courseNames = new HashMap<>();
-
-        // Собираем информацию о курсах и запланированных часах
-        for (Schedule schedule : schedules) {
-            Long lectureId = schedule.getLectureId();
-            neo4jService.findLectureById(lectureId).ifPresent(lectureNode -> {
-                Long courseId = lectureNode.getCourseId();
-                if (courseId != null) {
-                    postgresService.findCourseById(courseId).ifPresent(course -> {
-                        courseNames.put(courseId, course.getName());
-                        coursePlannedHours.put(courseId, coursePlannedHours.getOrDefault(courseId, 0L) + HOURS_PER_LECTURE);
-                        scheduleToCourseId.put(schedule.getId(), courseId);
-                    });
-                }
-            });
+        List<ReportDTO> report = new ArrayList<>();
+        for (String stu : students) {
+            ReportDTO dto = new ReportDTO();
+            dto.setGroupName(group.getName());
+            dto.setStudentNumber(stu);
+            dto.setPlannedHours(plannedHours);
+            dto.setAttendedHours(attended.getOrDefault(stu, 0));
+            redis.enrichStudentInfo(dto, stu);
+            mongo.enrichHierarchy(dto, group.getDepartment().getId());
+            report.add(dto);
         }
 
-        // Обрабатываем каждого студента
-        for (StudentNode student : students) {
-            String redisKey = student.getRedisKey();
-            Map<String, String> studentDetails = redisService.getStudentDetails(redisKey);
-
-            // Получаем посещаемость
-            List<Long> scheduleIds = schedules.stream().map(Schedule::getId).collect(Collectors.toList());
-            List<Attendance> attendances = postgresService.findAttendancesByStudentAndSchedules(student.getStudentNumber(), scheduleIds);
-
-            // Группируем посещаемость по курсам
-            Map<Long, Long> attendedHoursByCourse = new HashMap<>();
-            for (Attendance attendance : attendances) {
-                if (attendance.getStatus()) {
-                    Long courseId = scheduleToCourseId.get(attendance.getScheduleId());
-                    if (courseId != null) {
-                        attendedHoursByCourse.put(courseId, attendedHoursByCourse.getOrDefault(courseId, 0L) + HOURS_PER_LECTURE);
-                    }
-                }
-            }
-
-            // Создаем отчет для каждого курса
-            for (Map.Entry<Long, Long> entry : coursePlannedHours.entrySet()) {
-                Long courseId = entry.getKey();
-                Long plannedHours = entry.getValue();
-                Long attendedHours = attendedHoursByCourse.getOrDefault(courseId, 0L);
-
-                StudentReportDTO studentReport = new StudentReportDTO();
-                studentReport.setStudentNumber(student.getStudentNumber());
-                studentReport.setFullname(studentDetails.getOrDefault("fullname", student.getFullname()));
-                studentReport.setGroupName(report.getGroupName());
-                studentReport.setCourseName(courseNames.getOrDefault(courseId, "Unknown"));
-                studentReport.setDepartmentName(report.getDepartmentName());
-                studentReport.setPlannedHours(plannedHours);
-                studentReport.setAttendedHours(attendedHours);
-
-                studentReports.add(studentReport);
-            }
-        }
-
-        report.setStudents(studentReports);
+        log.info("Report generation completed: {} records for group {}", report.size(), groupId);
         return report;
     }
 }

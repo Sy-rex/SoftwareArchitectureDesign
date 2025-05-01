@@ -5,16 +5,17 @@ import lombok.Getter;
 import lombok.Setter;
 
 @Entity
-@Table(name = "course")
+@Table(name = "lecture")
 @Getter
 @Setter
-public class Course {
+public class Lecture {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
     private String name;
+    private Integer durationHours;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "id_department")
-    private Department department;
+    @JoinColumn(name = "id_course")
+    private Course course;
 }
