@@ -302,6 +302,24 @@ def populate_postgres(conn):
     total_start_time = time.time()
     
     cur = conn.cursor()
+    
+    # 1. Создание публикации (если ещё не существует)
+    logger.info("Создание публикации pub...")
+    try:
+        cur.execute("CREATE PUBLICATION pub FOR ALL TABLES;")
+        conn.commit()
+    except psycopg2.errors.DuplicateObject:
+        conn.rollback()
+        logger.info("Публикация уже существует, пропускаю.")
+
+    # 2. Создание слота репликации
+    logger.info("Создание логического слота репликации...")
+    try:
+        cur.execute("SELECT * FROM pg_create_logical_replication_slot('test_slot', 'wal2json');")
+        conn.commit()
+    except psycopg2.errors.DuplicateObject:
+        conn.rollback()
+        logger.info("Слот уже существует, пропускаю.")
 
     num_universities = min(len(UNIVERSITIES), 3)
     institutes_per_univ = 4
