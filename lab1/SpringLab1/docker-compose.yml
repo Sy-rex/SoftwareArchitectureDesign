@@ -158,7 +158,7 @@ services:
       retries: 10
 
   kafka-connect:
-    image: debezium/connect:2.2
+    image: debezium/connect:1.9
     container_name: kafka-connect
     depends_on:
       - kafka
@@ -166,18 +166,34 @@ services:
     ports:
       - "8085:8083"
     environment:
-      BOOTSTRAP_SERVERS: 'kafka:9092'
-      GROUP_ID: '1'
+      BOOTSTRAP_SERVERS: kafka:9092
+      GROUP_ID: 1
       CONFIG_STORAGE_TOPIC: my_connect_configs
       OFFSET_STORAGE_TOPIC: my_connect_offsets
       STATUS_STORAGE_TOPIC: my_connect_statuses
       KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
       VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
-      KEY_CONVERTER_SCHEMAS_ENABLE: 'false'
-      VALUE_CONVERTER_SCHEMAS_ENABLE: 'false'
-      CONNECT_PLUGIN_PATH: "/kafka/connect"
+      KEY_CONVERTER_SCHEMAS_ENABLE: false
+      VALUE_CONVERTER_SCHEMAS_ENABLE: false
+      CONNECT_REST_HOST_NAME: kafka-connect
+      CONNECT_REST_PORT: 8083
+      CONNECT_REST_ADVERTISED_HOST_NAME: kafka-connect
+      CONNECT_REST_ADVERTISED_PORT: 8083
+      PLUGIN_PATH: /kafka/connect
+      CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      STATUS_STORAGE_REPLICATION_FACTOR: 1
+      OFFSET_FLUSH_INTERVAL_MS: 10000
+    volumes:
+      - ./confluent-connectors:/kafka/connect/confluent-connectors
     networks:
       - app_net
+    restart: on-failure
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8083/" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     
   connector-setup:
     image: curlimages/curl:7.87.0
@@ -189,15 +205,17 @@ services:
       - -c
       - |
         echo 'Waiting for Kafka Connect to start...';
-        until curl -s http://kafka-connect:8083/connectors; do
-          sleep 5;
-        done;
-        echo 'Kafka Connect is ready. Registering connector...';
+        sleep 60;
+        echo "Checking Kafka Connect version...";
+        curl -v http://kafka-connect:8083/ | grep version;
+        echo "Registering connector...";
         curl -X POST http://kafka-connect:8083/connectors \
           -H 'Content-Type: application/json' \
           --data @/connectors/postgres.json \
-          --fail || echo 'Failed to register connector';
-        sleep 5
+          -v;
+        echo "Checking connector status...";
+        sleep 10;
+        curl -v http://kafka-connect:8083/connectors;
     volumes:
       - ./connectors/postgres.json:/connectors/postgres.json:ro
     networks:
